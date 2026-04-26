@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Send to Motrix",
+  "version": "1.1",
+  "description": "右键菜单发送到 Motrix 下载，可选自动拦截浏览器下载请求。",
+  "permissions": [
+    "contextMenus",
+    "downloads",
+    "storage",
+    "notifications"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:16800/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Send to Motrix"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

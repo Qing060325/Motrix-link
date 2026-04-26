@@ -3,22 +3,7 @@
 // 功能：右键菜单 + 自动拦截浏览器下载 + 任务管理
 // ============================================================
 
-// ---------- 默认配置 ----------
-const DEFAULT_CONFIG = {
-  rpcUrl: "http://127.0.0.1:16800/jsonrpc",
-  rpcSecret: "",
-  autoIntercept: false,
-  interceptMinSize: 1,
-  interceptExtensions: [
-    "zip", "rar", "7z", "tar", "gz", "bz2", "xz",
-    "iso", "img", "dmg",
-    "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm",
-    "mp3", "flac", "wav", "aac", "ogg", "wma",
-    "exe", "msi", "deb", "rpm", "pkg", "appimage",
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-    "apk", "ipa"
-  ]
-};
+importScripts("config.js");
 
 // ---------- 常量 ----------
 const RPC_TIMEOUT_MS = 5000;
@@ -31,15 +16,24 @@ async function getConfig() {
   return { ...DEFAULT_CONFIG, ...(stored.config || {}) };
 }
 
-function matchExtension(url, extensions) {
-  if (!extensions || extensions.length === 0) return true;
+/**
+ * 从 URL 中提取文件扩展名（忽略 query/hash）
+ */
+function getExtension(url) {
   try {
     const pathname = new URL(url).pathname.toLowerCase();
-    const ext = pathname.split(".").pop();
-    return extensions.includes(ext);
+    const seg = pathname.split("/").pop() || "";
+    const dot = seg.lastIndexOf(".");
+    return dot > 0 ? seg.slice(dot + 1) : "";
   } catch {
-    return false;
+    return "";
   }
+}
+
+function matchExtension(url, extensions) {
+  if (!extensions || extensions.length === 0) return true;
+  const ext = getExtension(url);
+  return ext ? extensions.includes(ext) : false;
 }
 
 function sizeInMB(bytes) {
@@ -58,6 +52,18 @@ function formatSpeed(bytesPerSec) {
   return formatBytes(bytesPerSec) + "/s";
 }
 
+/**
+ * 简单 HTML 转义，防止 XSS
+ */
+function escapeHtml(str) {
+  if (!str) return "";
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 // ---------- 任务历史 ----------
 async function addToHistory(entry) {
   const { taskHistory = [] } = await chrome.storage.local.get("taskHistory");
@@ -65,7 +71,6 @@ async function addToHistory(entry) {
     ...entry,
     time: Date.now()
   });
-  // 保留最近记录
   await chrome.storage.local.set({
     taskHistory: taskHistory.slice(0, TASK_HISTORY_MAX)
   });
@@ -93,6 +98,7 @@ async function rpcCall(method, params = [], config) {
       : params
   };
 
+  let lastErr;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const controller = new AbortController();
@@ -106,6 +112,11 @@ async function rpcCall(method, params = [], config) {
       });
 
       clearTimeout(timer);
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+      }
+
       const data = await response.json();
 
       if (data.error) {
@@ -113,11 +124,13 @@ async function rpcCall(method, params = [], config) {
       }
       return data.result;
     } catch (err) {
-      if (attempt === MAX_RETRIES) throw err;
-      // 等待后重试
-      await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+      lastErr = err;
+      if (attempt < MAX_RETRIES) {
+        await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+      }
     }
   }
+  throw lastErr;
 }
 
 async function sendToMotrix(url, config) {
@@ -158,12 +171,16 @@ async function getVersion(config) {
 
 // ---------- 通知 ----------
 function notify(title, message, isError = false) {
-  chrome.notifications.create({
-    type: "basic",
-    iconUrl: isError ? "icons/icon-error.png" : "icons/icon48.png",
-    title,
-    message
-  });
+  try {
+    chrome.notifications.create({
+      type: "basic",
+      iconUrl: isError ? "icons/icon-error.png" : "icons/icon128.png",
+      title,
+      message
+    });
+  } catch (e) {
+    console.warn("通知发送失败:", e);
+  }
 }
 
 // ---------- 右键菜单 ----------
@@ -212,10 +229,10 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
 
   const url = downloadItem.url;
 
-  // 跳过非 http(s) URL
+  // 跳过非 http(s) URL（data:、blob:、filesystem: 等不拦截）
   if (!url.startsWith("http://") && !url.startsWith("https://")) return;
 
-  // 文件大小过滤
+  // 文件大小过滤（totalBytes 可能为 -1 表示未知）
   if (downloadItem.totalBytes > 0) {
     const mb = sizeInMB(downloadItem.totalBytes);
     if (mb < config.interceptMinSize) return;
@@ -228,8 +245,14 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
   try {
     const taskId = await sendToMotrix(url, config);
     // 取消浏览器原生下载
-    chrome.downloads.cancel(downloadItem.id);
-    chrome.downloads.erase({ id: downloadItem.id });
+    try {
+      await chrome.downloads.cancel(downloadItem.id);
+    } catch (_) {
+      // 下载可能已完成或不存在，忽略
+    }
+    try {
+      await chrome.downloads.erase(downloadItem.id);
+    } catch (_) {}
     notify("已拦截并发送到 Motrix", downloadItem.filename || url);
     await addToHistory({
       url,
@@ -317,6 +340,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 // ---------- 监听配置变更 ----------
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.config) {
-    console.log("配置已更新:", changes.config.newValue);
+    console.log("[Send to Motrix] 配置已更新");
   }
 });

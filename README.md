@@ -12,10 +12,11 @@
 
 - **🖱️ 右键下载** — 在任意链接/图片/视频上右键，选择「使用 Motrix 下载」
 - **🔄 自动拦截** — 开启后自动拦截浏览器下载请求，转发到 Motrix（可配置最小文件大小和文件后缀）
-- **📋 任务管理** — 在扩展内查看下载进度、暂停/继续/移除任务
+- **📋 任务管理** — 在扩展内查看下载进度、暂停/继续/移除任务，支持自动刷新
 - **📜 历史记录** — 记录所有操作（右键发送、自动拦截），方便回溯
 - **⚙️ 灵活配置** — 支持自定义 RPC 地址、Secret、拦截规则
 - **🌙 深色主题** — 精心设计的深色 UI，护眼且美观
+- **🔒 安全可靠** — 所有用户输入均经过 HTML 转义，防止 XSS
 
 ## 📦 安装
 
@@ -50,10 +51,15 @@ aria2c --enable-rpc --rpc-listen-port=16800 --rpc-allow-origin-all
 ```
 MotrixExtension/
 ├── manifest.json      # 扩展配置（Manifest V3）
+├── config.js          # 共享配置（background + popup 共用）
 ├── background.js      # 后台服务（RPC 通信、拦截逻辑、任务管理）
 ├── popup.html         # 弹窗界面（深色主题）
 ├── popup.js           # 弹窗逻辑（三标签页：设置/任务/历史）
 └── icons/             # 图标资源
+    ├── icon16.png
+    ├── icon48.png
+    ├── icon128.png
+    └── icon-error.png
 ```
 
 ## 📄 License

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Send to Motrix",
-  "version": "1.1",
-  "description": "右键菜单发送到 Motrix 下载，可选自动拦截浏览器下载请求。",
+  "version": "1.0.0",
+  "description": "右键菜单发送下载链接到 Motrix，支持自动拦截浏览器下载请求。",
   "permissions": [
     "contextMenus",
     "downloads",
@@ -10,7 +10,7 @@
     "notifications"
   ],
   "host_permissions": [
-    "http://127.0.0.1:16800/*"
+    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"

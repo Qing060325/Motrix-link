@@ -2,22 +2,6 @@
 // Send to Motrix - Popup UI Logic
 // ============================================================
 
-const DEFAULT_CONFIG = {
-  rpcUrl: "http://127.0.0.1:16800/jsonrpc",
-  rpcSecret: "",
-  autoIntercept: false,
-  interceptMinSize: 1,
-  interceptExtensions: [
-    "zip", "rar", "7z", "tar", "gz", "bz2", "xz",
-    "iso", "img", "dmg",
-    "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm",
-    "mp3", "flac", "wav", "aac", "ogg", "wma",
-    "exe", "msi", "deb", "rpm", "pkg", "appimage",
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
-    "apk", "ipa"
-  ]
-};
-
 // ── DOM helpers ──
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -28,6 +12,14 @@ function showToast(msg, ms = 1800) {
   t.textContent = msg;
   t.classList.add("show");
   setTimeout(() => t.classList.remove("show"), ms);
+}
+
+// ── HTML 转义（防 XSS） ──
+function esc(str) {
+  if (!str) return "";
+  const d = document.createElement("div");
+  d.textContent = str;
+  return d.innerHTML;
 }
 
 // ── Format helpers ──
@@ -72,13 +64,24 @@ function timeAgo(ts) {
 //  TABS
 // ══════════════════════════════════════════
 let currentTab = "settings";
+let taskRefreshTimer = null;
 
 function switchTab(name) {
   currentTab = name;
   $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.panel === name));
   $$(".panel").forEach(p => p.classList.toggle("active", p.id === "panel-" + name));
 
-  if (name === "tasks") refreshTasks();
+  // 清除任务自动刷新
+  if (taskRefreshTimer) {
+    clearInterval(taskRefreshTimer);
+    taskRefreshTimer = null;
+  }
+
+  if (name === "tasks") {
+    refreshTasks();
+    // 每 3 秒自动刷新任务列表
+    taskRefreshTimer = setInterval(refreshTasks, 3000);
+  }
   if (name === "history") refreshHistory();
 }
 
@@ -104,7 +107,7 @@ function renderExtTags(exts) {
   exts.forEach(ext => {
     const tag = document.createElement("span");
     tag.className = "ext-tag";
-    tag.innerHTML = `${ext}<span class="remove" data-ext="${ext}">×</span>`;
+    tag.innerHTML = `${esc(ext)}<span class="remove" data-ext="${esc(ext)}">×</span>`;
     box.appendChild(tag);
   });
   box.querySelectorAll(".remove").forEach(btn => {
@@ -193,7 +196,7 @@ async function refreshTasks() {
   if (resp.error) {
     bar.className = "status-bar err";
     text.textContent = resp.error;
-    list.innerHTML = `<div class="empty"><div class="icon">⚠️</div><div class="msg">${resp.error}</div></div>`;
+    list.innerHTML = `<div class="empty"><div class="icon">⚠️</div><div class="msg">${esc(resp.error)}</div></div>`;
     tasksConnected = false;
     return;
   }
@@ -213,12 +216,8 @@ async function refreshTasks() {
   }
 
   let html = "";
-
-  // Active tasks
   active.forEach(t => { html += renderTask(t, "active"); });
-  // Waiting tasks
   waiting.forEach(t => { html += renderTask(t, "waiting"); });
-  // Stopped tasks (completed, error, removed)
   stopped.forEach(t => {
     let status = "complete";
     if (t.status === "error") status = "error";
@@ -228,17 +227,21 @@ async function refreshTasks() {
 
   list.innerHTML = html;
 
-  // Bind task action buttons
+  // 绑定操作按钮
   list.querySelectorAll("[data-action]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const action = btn.dataset.action;
       const gid = btn.dataset.gid;
-      let msgAction;
-      if (action === "pause") msgAction = "pauseTask";
-      else if (action === "resume") msgAction = "resumeTask";
-      else if (action === "remove") msgAction = "removeTask";
-      else if (action === "forceRemove") msgAction = "forceRemoveTask";
+      const actionMap = {
+        pause: "pauseTask",
+        resume: "resumeTask",
+        remove: "removeTask",
+        forceRemove: "forceRemoveTask"
+      };
+      const msgAction = actionMap[action];
+      if (!msgAction) return;
 
+      btn.disabled = true;
       const r = await sendMsg({ action: msgAction, gid });
       if (r.error) {
         showToast("操作失败: " + r.error);
@@ -255,9 +258,18 @@ function renderTask(t, status) {
   const completed = parseInt(t.completedLength) || 0;
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
   const speed = parseInt(t.downloadSpeed) || 0;
-  const name = (t.files && t.files[0] && t.files[0].path)
-    ? t.files[0].path.split("/").pop()
-    : truncateUrl((t.files && t.files[0] && t.files[0].uris && t.files[0].uris[0] && t.files[0].uris[0].uri) || "");
+
+  // 安全提取文件名
+  let name = "";
+  if (t.files && t.files[0]) {
+    if (t.files[0].path) {
+      name = t.files[0].path.split("/").pop();
+    }
+    if (!name && t.files[0].uris && t.files[0].uris[0]) {
+      name = truncateUrl(t.files[0].uris[0].uri || "");
+    }
+  }
+  name = name || "未知文件";
 
   const statusLabels = {
     active: "下载中",
@@ -271,28 +283,28 @@ function renderTask(t, status) {
   let actions = "";
   if (status === "active") {
     actions = `
-      <button data-action="pause" data-gid="${t.gid}">⏸ 暂停</button>
-      <button data-action="remove" data-gid="${t.gid}" class="danger">✕ 移除</button>
+      <button data-action="pause" data-gid="${esc(t.gid)}">⏸ 暂停</button>
+      <button data-action="remove" data-gid="${esc(t.gid)}" class="danger">✕ 移除</button>
     `;
   } else if (status === "waiting") {
     actions = `
-      <button data-action="remove" data-gid="${t.gid}" class="danger">✕ 移除</button>
+      <button data-action="remove" data-gid="${esc(t.gid)}" class="danger">✕ 移除</button>
     `;
   } else if (status === "paused") {
     actions = `
-      <button data-action="resume" data-gid="${t.gid}">▶ 继续</button>
-      <button data-action="remove" data-gid="${t.gid}" class="danger">✕ 移除</button>
+      <button data-action="resume" data-gid="${esc(t.gid)}">▶ 继续</button>
+      <button data-action="remove" data-gid="${esc(t.gid)}" class="danger">✕ 移除</button>
     `;
   } else if (status === "error" || status === "removed" || status === "complete") {
     actions = `
-      <button data-action="forceRemove" data-gid="${t.gid}" class="danger">✕ 清除</button>
+      <button data-action="forceRemove" data-gid="${esc(t.gid)}" class="danger">✕ 清除</button>
     `;
   }
 
   return `
     <div class="task-item">
       <div class="task-top">
-        <span class="task-name" title="${name || '未知文件'}">${name || "未知文件"}</span>
+        <span class="task-name" title="${esc(name)}">${esc(name)}</span>
         <span class="task-status ${status}">${statusLabels[status] || status}</span>
       </div>
       <div class="task-progress">
@@ -322,9 +334,7 @@ async function refreshHistory() {
 
   box.innerHTML = items.map(h => {
     const isOk = h.status === "sent" || h.status === "intercepted";
-    const name = h.filename
-      ? h.filename
-      : truncateUrl(h.url || "");
+    const name = h.filename || truncateUrl(h.url || "");
     const detail = h.status === "intercepted" ? "自动拦截"
       : h.status === "sent" ? "右键发送"
       : h.status === "failed" ? "发送失败"
@@ -335,8 +345,8 @@ async function refreshHistory() {
       <div class="history-item">
         <div class="history-icon ${isOk ? "ok" : "fail"}">${isOk ? "✓" : "✕"}</div>
         <div class="history-info">
-          <div class="history-name" title="${name}">${name}</div>
-          <div class="history-detail">${detail} · ${timeAgo(h.time)}</div>
+          <div class="history-name" title="${esc(name)}">${esc(name)}</div>
+          <div class="history-detail">${esc(detail)} · ${timeAgo(h.time)}</div>
         </div>
       </div>
     `;
@@ -359,5 +369,10 @@ $("#btnAddExt").addEventListener("click", addExtension);
 $("#newExt").addEventListener("keydown", e => { if (e.key === "Enter") addExtension(); });
 $("#btnRefresh").addEventListener("click", refreshTasks);
 $("#btnClearHistory").addEventListener("click", clearHistory);
+
+// popup 关闭时清理定时器
+window.addEventListener("unload", () => {
+  if (taskRefreshTimer) clearInterval(taskRefreshTimer);
+});
 
 loadConfig().then(() => testConnection());

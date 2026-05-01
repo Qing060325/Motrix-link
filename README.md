@@ -5,6 +5,7 @@
 [![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-blue?logo=google-chrome)](https://github.com/Qing060325/Motrix-link)
 [![Manifest V3](https://img.shields.io/badge/Manifest-V3-green)](https://developer.chrome.com/docs/extensions/mv3/)
 [![Aria2 RPC](https://img.shields.io/badge/Aria2-RPC-orange)](https://aria2.github.io/)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 ---
 
@@ -18,50 +19,364 @@
 - **🌙 深色主题** — 精心设计的深色 UI，护眼且美观
 - **🔒 安全可靠** — 所有用户输入均经过 HTML 转义，防止 XSS
 
+---
+
 ## 📦 安装
 
 ### 1. 启动 Aria2 / Motrix RPC 服务
 
+**方式一：使用 Aria2**
 ```bash
 aria2c --enable-rpc --rpc-listen-port=16800 --rpc-allow-origin-all
 ```
 
-或直接打开 Motrix 桌面客户端（默认启用 RPC）。
+**方式二：使用 Motrix 桌面客户端**
+直接打开 Motrix 应用（默认启用 RPC 服务，监听 `127.0.0.1:16800`）。
 
 ### 2. 加载浏览器扩展
 
 1. 下载本仓库代码
 2. 打开 Chrome，访问 `chrome://extensions/`
-3. 开启 **开发者模式**
+3. 开启 **开发者模式**（右上角切换开关）
 4. 点击 **加载已解压的扩展程序**，选择 `MotrixExtension` 目录
 5. 点击扩展图标，确认状态显示「已连接」
 
+---
+
 ## 🔧 配置说明
+
+### 基础配置
 
 | 选项 | 默认值 | 说明 |
 |------|--------|------|
-| RPC 地址 | `http://127.0.0.1:16800/jsonrpc` | Aria2 / Motrix 的 RPC 接口地址 |
-| RPC Secret | 留空 | 如果 RPC 设置了密钥，填入此处 |
-| 自动拦截 | 关闭 | 是否自动拦截浏览器下载请求 |
-| 最小文件大小 | 1 MB | 低于此大小的文件不拦截 |
-| 文件后缀 | zip, rar, 7z, mp4, mp3... | 只拦截匹配后缀的文件 |
+| **RPC 地址** | `http://127.0.0.1:16800/jsonrpc` | Aria2 / Motrix 的 RPC 接口地址 |
+| **RPC Secret** | 留空 | 如果 RPC 设置了密钥，填入此处 |
+| **自动拦截** | 关闭 | 是否自动拦截浏览器下载请求 |
+| **最小文件大小** | 1 MB | 低于此大小的文件不拦截 |
+| **文件后缀** | 见下表 | 只拦截匹配后缀的文件 |
+
+### 默认拦截文件类型
+
+| 类型 | 后缀 |
+|------|------|
+| **压缩包** | zip, rar, 7z, tar, gz, bz2, xz |
+| **光盘镜像** | iso, img, dmg |
+| **视频** | mp4, mkv, avi, mov, wmv, flv, webm |
+| **音频** | mp3, flac, wav, aac, ogg, wma |
+| **安装包** | exe, msi, deb, rpm, pkg, appimage |
+| **文档** | pdf, doc, docx, xls, xlsx, ppt, pptx |
+| **移动应用** | apk, ipa |
+
+### 配置示例
+
+#### 示例 1：本地 Motrix（默认配置）
+```
+RPC 地址: http://127.0.0.1:16800/jsonrpc
+RPC Secret: （留空）
+自动拦截: 开启
+最小文件大小: 1 MB
+```
+
+#### 示例 2：远程 Aria2 服务器（带密钥）
+```
+RPC 地址: http://192.168.1.100:6800/jsonrpc
+RPC Secret: your-secret-token
+自动拦截: 开启
+最小文件大小: 10 MB
+```
+
+#### 示例 3：仅拦截视频和音乐
+1. 打开设置
+2. 清空所有后缀
+3. 添加后缀：mp4, mkv, mp3, flac
+
+---
 
 ## 📁 项目结构
 
 ```
 MotrixExtension/
-├── manifest.json      # 扩展配置（Manifest V3）
-├── config.js          # 共享配置（background + popup 共用）
-├── background.js      # 后台服务（RPC 通信、拦截逻辑、任务管理）
-├── popup.html         # 弹窗界面（深色主题）
-├── popup.js           # 弹窗逻辑（三标签页：设置/任务/历史）
-└── icons/             # 图标资源
-    ├── icon16.png
-    ├── icon48.png
-    ├── icon128.png
-    └── icon-error.png
+├── manifest.json          # 扩展配置（Manifest V3）
+├── config.js              # 共享配置（background + popup 共用）
+├── background.js          # 后台服务（RPC 通信、拦截逻辑、任务管理）
+├── popup.html             # 弹窗界面（深色主题）
+├── popup.js               # 弹窗逻辑（三标签页：设置/任务/历史）
+└── icons/                 # 图标资源
+    ├── icon16.png         # 16x16 图标
+    ├── icon48.png         # 48x48 图标
+    ├── icon128.png        # 128x128 图标
+    └── icon-error.png     # 错误状态图标
 ```
+
+---
+
+## 🐛 故障排除
+
+### 问题 1：扩展显示「连接失败」
+
+**原因分析：**
+- Aria2 / Motrix 服务未启动
+- RPC 地址配置错误
+- 防火墙阻止连接
+
+**解决方案：**
+1. 确保 Aria2 或 Motrix 已启动
+   ```bash
+   # 检查 Aria2 是否运行
+   netstat -an | grep 16800
+   ```
+2. 验证 RPC 地址是否正确
+   - 本地：`http://127.0.0.1:16800/jsonrpc`
+   - 远程：确保地址和端口正确
+3. 检查防火墙设置，允许 Chrome 访问 RPC 端口
+4. 如配置了 RPC Secret，确保已填入
+
+### 问题 2：自动拦截不工作
+
+**原因分析：**
+- 自动拦截功能未开启
+- 文件大小或后缀不匹配
+- 浏览器下载设置冲突
+
+**解决方案：**
+1. 打开扩展设置，确认「自动拦截」已启用
+2. 检查「最小文件大小」设置（默认 1 MB）
+3. 确认要下载的文件后缀在拦截列表中
+4. 检查浏览器下载设置：
+   - Chrome → 设置 → 隐私设置和安全性 → 网站设置 → 其他内容设置 → 下载内容
+   - 确保未选择「下载前询问每个文件的保存位置」
+
+### 问题 3：右键菜单不显示
+
+**原因分析：**
+- 扩展未正确加载
+- 浏览器缓存问题
+
+**解决方案：**
+1. 打开 `chrome://extensions/`
+2. 找到「Send to Motrix」扩展
+3. 点击「刷新」按钮
+4. 重新加载网页（Ctrl+R 或 Cmd+R）
+
+### 问题 4：发送失败，提示「发送失败」
+
+**原因分析：**
+- RPC 连接超时
+- Aria2 / Motrix 崩溃或重启
+- 网络连接中断
+
+**解决方案：**
+1. 点击设置页的「测试连接」按钮，检查连接状态
+2. 重启 Aria2 / Motrix 服务
+3. 检查网络连接
+4. 查看浏览器控制台（F12）的错误日志
+
+### 问题 5：拦截后文件未出现在 Motrix
+
+**原因分析：**
+- 任务已发送但未刷新
+- Motrix 显示延迟
+- 文件已被浏览器下载
+
+**解决方案：**
+1. 点击扩展的「任务」标签页，手动点击「刷新」
+2. 等待 3-5 秒，让 Motrix 处理新任务
+3. 检查 Motrix 的「已完成」或「回收站」标签页
+
+---
+
+## 🔌 API 文档
+
+### RPC 方法
+
+本扩展使用 Aria2 JSON-RPC 2.0 协议。以下是常用方法：
+
+#### aria2.addUri
+发送下载链接到 Aria2。
+
+**请求：**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "motrix-ext-xxx",
+  "method": "aria2.addUri",
+  "params": ["token:secret", ["http://example.com/file.zip"], {}]
+}
+```
+
+**响应：**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "motrix-ext-xxx",
+  "result": "2089b05ecca3d829"
+}
+```
+
+#### aria2.tellActive
+获取正在下载的任务。
+
+**请求：**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "motrix-ext-xxx",
+  "method": "aria2.tellActive",
+  "params": ["token:secret"]
+}
+```
+
+**响应：**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "motrix-ext-xxx",
+  "result": [
+    {
+      "gid": "2089b05ecca3d829",
+      "status": "active",
+      "totalLength": "1000000",
+      "completedLength": "500000",
+      "downloadSpeed": "100000",
+      "eta": "5",
+      "files": [{"path": "/home/user/file.zip"}]
+    }
+  ]
+}
+```
+
+#### 其他常用方法
+
+| 方法 | 功能 |
+|------|------|
+| `aria2.tellWaiting` | 获取等待中的任务 |
+| `aria2.tellStopped` | 获取已停止的任务 |
+| `aria2.pause` | 暂停任务 |
+| `aria2.unpause` | 继续任务 |
+| `aria2.remove` | 移除任务 |
+| `aria2.forceRemove` | 强制移除任务 |
+| `aria2.getVersion` | 获取 Aria2 版本 |
+
+详见 [Aria2 RPC 文档](https://aria2.github.io/manual/en/html/aria2c.html#rpc-interface)。
+
+---
+
+## 🔐 安全性
+
+### 输入验证
+- ✅ RPC URL 使用 URL 构造函数验证
+- ✅ 文件后缀使用正则表达式验证（仅允许字母、数字、下划线）
+- ✅ 最小文件大小验证为非负数
+
+### XSS 防护
+- ✅ 所有用户输入在显示前进行 HTML 转义
+- ✅ 使用 `textContent` 而非 `innerHTML` 处理不可信数据
+- ✅ 动态生成的 HTML 中的变量均使用 `esc()` 函数转义
+
+### 隐私保护
+- ✅ 所有数据存储在本地（`chrome.storage.local`）
+- ✅ 不收集用户信息
+- ✅ 不上传任何数据到远程服务器
+
+---
+
+## 📝 开发指南
+
+### 本地开发
+
+1. **克隆仓库**
+   ```bash
+   git clone https://github.com/Qing060325/Motrix-link.git
+   cd Motrix-link
+   ```
+
+2. **加载扩展**
+   - 打开 `chrome://extensions/`
+   - 启用「开发者模式」
+   - 点击「加载已解压的扩展程序」，选择 `MotrixExtension` 目录
+
+3. **修改代码后**
+   - 在 `chrome://extensions/` 中点击扩展的「刷新」按钮
+   - 重新加载网页查看效果
+
+### 代码结构
+
+- **config.js** — 默认配置常量，被 background.js 和 popup.js 共用
+- **background.js** — 后台服务，处理：
+  - 右键菜单事件
+  - 自动拦截逻辑
+  - RPC 通信和重试
+  - 任务历史管理
+  - 消息路由
+- **popup.js** — 弹窗逻辑，处理：
+  - 标签页切换
+  - 设置加载/保存/验证
+  - 任务列表刷新和操作
+  - 历史记录显示
+
+### 添加新功能
+
+**示例：添加新的 RPC 方法**
+
+1. 在 `background.js` 中添加函数：
+   ```javascript
+   async function getTaskStats(gid, config) {
+     return rpcCall("aria2.getFiles", [gid], config);
+   }
+   ```
+
+2. 在消息处理中添加新的 action：
+   ```javascript
+   case "getTaskStats": {
+     const stats = await getTaskStats(msg.gid);
+     sendResponse({ stats });
+     break;
+   }
+   ```
+
+3. 在 `popup.js` 中调用：
+   ```javascript
+   const resp = await sendMsg({ action: "getTaskStats", gid: "xxx" });
+   ```
+
+---
+
+## 🤝 贡献指南
+
+欢迎提交 Issue 和 Pull Request！
+
+### 报告 Bug
+- 描述问题现象
+- 提供重现步骤
+- 附加浏览器控制台错误信息（F12）
+
+### 提交改进
+- Fork 本仓库
+- 创建特性分支 (`git checkout -b feature/amazing-feature`)
+- 提交更改 (`git commit -m 'Add amazing feature'`)
+- 推送到分支 (`git push origin feature/amazing-feature`)
+- 开启 Pull Request
+
+---
 
 ## 📄 License
 
 [MIT](LICENSE)
+
+---
+
+## 🙏 致谢
+
+- [Aria2](https://aria2.github.io/) — 开源下载管理器
+- [Motrix](https://motrix.app/) — 美观的下载管理应用
+- [Chrome Extension Docs](https://developer.chrome.com/docs/extensions/) — 官方文档
+
+---
+
+## 📞 联系方式
+
+- **GitHub Issues** — 报告 Bug 或提出建议
+- **GitHub Discussions** — 讨论功能和改进
+
+**最后更新**：2026-05-01  
+**版本**：1.0.0

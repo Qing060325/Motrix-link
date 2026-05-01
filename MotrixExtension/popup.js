@@ -90,9 +90,22 @@ $$(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.pa
 // ══════════════════════════════════════════
 //  MESSAGE HELPER
 // ══════════════════════════════════════════
+/**
+ * 发送消息到 background service worker
+ * @param {Object} msg - 消息对象
+ * @returns {Promise<Object>} - 响应对象
+ */
 function sendMsg(msg) {
   return new Promise((resolve) => {
-    chrome.runtime.sendMessage(msg, (resp) => resolve(resp || {}));
+    chrome.runtime.sendMessage(msg, (resp) => {
+      // 检查是否有运行时错误
+      if (chrome.runtime.lastError) {
+        console.error("Message error:", chrome.runtime.lastError);
+        resolve({ error: chrome.runtime.lastError.message });
+      } else {
+        resolve(resp || {});
+      }
+    });
   });
 }
 
@@ -129,11 +142,30 @@ async function loadConfig() {
   renderExtTags(currentConfig.interceptExtensions);
 }
 
+/**
+ * 保存配置
+ */
 async function saveConfig() {
-  currentConfig.rpcUrl = $("#rpcUrl").value.trim() || DEFAULT_CONFIG.rpcUrl;
+  // 验证 RPC URL
+  const rpcUrl = $("#rpcUrl").value.trim() || DEFAULT_CONFIG.rpcUrl;
+  try {
+    new URL(rpcUrl);
+  } catch (err) {
+    showToast("❌ RPC 地址格式不正确");
+    return;
+  }
+
+  currentConfig.rpcUrl = rpcUrl;
   currentConfig.rpcSecret = $("#rpcSecret").value.trim();
   currentConfig.autoIntercept = $("#autoIntercept").checked;
-  currentConfig.interceptMinSize = parseFloat($("#minSize").value) || DEFAULT_CONFIG.interceptMinSize;
+  
+  // 验证最小文件大小
+  const minSize = parseFloat($("#minSize").value);
+  if (isNaN(minSize) || minSize < 0) {
+    showToast("❌ 最小文件大小必须为正数");
+    return;
+  }
+  currentConfig.interceptMinSize = minSize || DEFAULT_CONFIG.interceptMinSize;
 
   await chrome.storage.local.set({ config: currentConfig });
   showToast("✅ 设置已保存");
@@ -148,33 +180,57 @@ async function resetConfig() {
   testConnection();
 }
 
+/**
+ * 添加文件后缀
+ */
 function addExtension() {
   const ext = $("#newExt").value.trim().toLowerCase().replace(/^\./, "");
-  if (!ext) return;
+  if (!ext) {
+    showToast("❌ 请输入文件后缀");
+    return;
+  }
+  // 验证后缀格式（只允许字母、数字、下划线）
+  if (!/^[a-z0-9_]+$/.test(ext)) {
+    showToast("❌ 后缀格式不正确");
+    return;
+  }
   if (currentConfig.interceptExtensions.includes(ext)) {
-    showToast("该后缀已存在");
+    showToast("❌ 该后缀已存在");
+    return;
+  }
+  if (currentConfig.interceptExtensions.length >= 50) {
+    showToast("❌ 最多添加 50 个后缀");
     return;
   }
   currentConfig.interceptExtensions.push(ext);
   renderExtTags(currentConfig.interceptExtensions);
   $("#newExt").value = "";
+  showToast("✅ 已添加后缀: " + ext);
 }
 
 // ── Test connection ──
+/**
+ * 测试与 Aria2/Motrix 的连接
+ */
 async function testConnection() {
   const bar = $("#statusBar");
   const text = $("#statusText");
   bar.className = "status-bar pending";
   text.textContent = "连接中…";
 
-  const resp = await sendMsg({ action: "testConnection" });
+  try {
+    const resp = await sendMsg({ action: "testConnection" });
 
-  if (resp.ok) {
-    bar.className = "status-bar ok";
-    text.textContent = `已连接 — Aria2 v${resp.version}`;
-  } else {
+    if (resp.ok) {
+      bar.className = "status-bar ok";
+      text.textContent = `已连接 — Aria2 v${resp.version}`;
+    } else {
+      bar.className = "status-bar err";
+      text.textContent = resp.error || "连接失败";
+    }
+  } catch (err) {
     bar.className = "status-bar err";
-    text.textContent = resp.error || "连接失败";
+    text.textContent = "连接异常: " + err.message;
   }
 }
 
@@ -183,6 +239,18 @@ async function testConnection() {
 // ══════════════════════════════════════════
 let tasksConnected = false;
 
+/**
+ * 刷新任务列表
+ * 注意: aria2 的 waiting 列表可能包含暂停的任务，需要根据 status 字段判断
+ *
+ * 任务状态说明:
+ * - active: 正在下载
+ * - waiting: 等待中（未开始）
+ * - paused: 已暂停（可能在 waiting 列表中）
+ * - complete: 已完成
+ * - error: 下载失败
+ * - removed: 已删除
+ */
 async function refreshTasks() {
   const bar = $("#taskStatusBar");
   const text = $("#taskStatusText");
@@ -217,7 +285,12 @@ async function refreshTasks() {
 
   let html = "";
   active.forEach(t => { html += renderTask(t, "active"); });
-  waiting.forEach(t => { html += renderTask(t, "waiting"); });
+  // 处理 waiting 列表中的暂停任务
+  waiting.forEach(t => {
+    // aria2 中暂停的任务 status 为 "paused"，即使在 waiting 列表中
+    const status = t.status === "paused" ? "paused" : "waiting";
+    html += renderTask(t, status);
+  });
   stopped.forEach(t => {
     let status = "complete";
     if (t.status === "error") status = "error";

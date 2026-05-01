@@ -18,6 +18,8 @@ async function getConfig() {
 
 /**
  * 从 URL 中提取文件扩展名（忽略 query/hash）
+ * @param {string} url - 文件 URL
+ * @returns {string} - 扩展名（不含点）
  */
 function getExtension(url) {
   try {
@@ -30,16 +32,32 @@ function getExtension(url) {
   }
 }
 
+/**
+ * 检查文件扩展名是否匹配拦截列表
+ * @param {string} url - 文件 URL
+ * @param {Array<string>} extensions - 拦截扩展名列表
+ * @returns {boolean} - 是否匹配
+ */
 function matchExtension(url, extensions) {
   if (!extensions || extensions.length === 0) return true;
   const ext = getExtension(url);
   return ext ? extensions.includes(ext) : false;
 }
 
+/**
+ * 将字节转换为 MB
+ * @param {number} bytes - 字节数
+ * @returns {number} - MB 数值
+ */
 function sizeInMB(bytes) {
   return bytes / (1024 * 1024);
 }
 
+/**
+ * 格式化字节大小
+ * @param {number} bytes - 字节数
+ * @returns {string} - 格式化后的字符串（如 "1.5 MB"）
+ */
 function formatBytes(bytes) {
   if (bytes <= 0) return "未知";
   const units = ["B", "KB", "MB", "GB"];

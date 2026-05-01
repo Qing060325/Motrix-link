@@ -16,5 +16,17 @@ const DEFAULT_CONFIG = {
     "exe", "msi", "deb", "rpm", "pkg", "appimage",
     "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx",
     "apk", "ipa"
-  ]
+  ],
+
+  // v2.0 新增：多服务器配置
+  serverProfiles: [
+    { name: "本地 Motrix", url: "http://127.0.0.1:16800/jsonrpc", secret: "" }
+  ],
+  activeProfileIndex: 0,
+
+  // v2.0 新增：全局速度限制（字节/秒，0 = 不限）
+  globalSpeedLimit: 0,
+
+  // v2.0 新增：下载完成通知
+  downloadCompleteNotify: true
 };

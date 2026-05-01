@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Send to Motrix",
-  "version": "1.0.0",
-  "description": "右键菜单发送下载链接到 Motrix，支持自动拦截浏览器下载请求。",
+  "version": "2.0.0",
+  "description": "右键菜单发送下载链接到 Motrix，支持自动拦截、批量下载、多服务器切换。",
   "permissions": [
     "contextMenus",
     "downloads",
@@ -17,11 +17,24 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Send to Motrix"
+    "default_title": "Send to Motrix",
+    "default_badge": {
+      "text": "",
+      "color": "#6366f1"
+    }
   },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "commands": {
+    "toggle-intercept": {
+      "suggested_key": {
+        "default": "Alt+Shift+M",
+        "mac": "Alt+Shift+M"
+      },
+      "description": "切换自动拦截"
+    }
   }
 }

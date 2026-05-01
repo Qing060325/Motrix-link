@@ -29,7 +29,7 @@
     }
 
     body {
-      width: 380px;
+      width: 400px;
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
       font-size: 13px;
       color: var(--text);
@@ -115,7 +115,7 @@
     }
 
     /* ── Panels ── */
-    .panel { display: none; padding: 14px 20px 20px; max-height: 460px; overflow-y: auto; }
+    .panel { display: none; padding: 14px 20px 20px; max-height: 480px; overflow-y: auto; }
     .panel.active { display: block; }
 
     .panel::-webkit-scrollbar { width: 4px; }
@@ -280,7 +280,7 @@
     }
     .input-row + .input-row { border-top: 1px solid var(--border); }
     .input-row label { font-weight: 500; font-size: 12px; color: var(--text); }
-    .input-row input {
+    .input-row input, .input-row textarea {
       border: 1px solid var(--border-light);
       border-radius: var(--radius-sm);
       padding: 9px 12px;
@@ -291,11 +291,48 @@
       background: var(--surface-2);
       color: var(--text);
     }
-    .input-row input::placeholder { color: var(--text-muted); }
-    .input-row input:focus {
+    .input-row input::placeholder, .input-row textarea::placeholder { color: var(--text-muted); }
+    .input-row input:focus, .input-row textarea:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px var(--accent-glow);
       background: var(--surface);
+    }
+    .input-row textarea {
+      resize: vertical;
+      min-height: 60px;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    /* ── Select ── */
+    .select-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 0;
+    }
+    .select-row + .select-row { border-top: 1px solid var(--border); }
+    .select-row label { font-weight: 500; font-size: 12px; color: var(--text); flex-shrink: 0; }
+    .select-row select {
+      flex: 1;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      font-size: 12px;
+      background: var(--surface-2);
+      color: var(--text);
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236b6b80'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+    .select-row select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-glow);
     }
 
     /* ── Extension Tags ── */
@@ -382,6 +419,62 @@
     .btn-secondary:hover {
       background: var(--surface-3);
       color: var(--text);
+    }
+    .btn-sm-inline {
+      padding: 6px 14px;
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-sm);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      background: var(--surface-2);
+      color: var(--text-dim);
+    }
+    .btn-sm-inline:hover { background: var(--surface-3); color: var(--text); }
+    .btn-sm-inline.active {
+      background: var(--accent-glow);
+      color: var(--accent-light);
+      border-color: rgba(99,102,241,0.3);
+    }
+    .btn-danger {
+      background: var(--red-dim);
+      color: var(--red);
+      border: 1px solid rgba(248,113,113,0.2);
+    }
+    .btn-danger:hover {
+      background: rgba(248,113,113,0.2);
+    }
+
+    /* ── Speed Limit Bar ── */
+    .speed-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 0;
+    }
+    .speed-bar + .speed-bar { border-top: 1px solid var(--border); }
+    .speed-bar label { font-weight: 500; font-size: 12px; color: var(--text); flex-shrink: 0; }
+    .speed-presets {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+    .speed-preset {
+      padding: 4px 10px;
+      border: 1px solid var(--border-light);
+      border-radius: 6px;
+      font-size: 11px;
+      cursor: pointer;
+      background: var(--surface-2);
+      color: var(--text-dim);
+      transition: all 0.15s;
+    }
+    .speed-preset:hover { background: var(--surface-3); color: var(--text); }
+    .speed-preset.active {
+      background: var(--accent-glow);
+      color: var(--accent-light);
+      border-color: rgba(99,102,241,0.3);
     }
 
     /* ── Task List ── */
@@ -549,6 +642,83 @@
       box-shadow: 0 8px 24px rgba(0,0,0,0.4);
     }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Server Profile Cards ── */
+    .profile-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .profile-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .profile-card:hover { border-color: var(--border-light); }
+    .profile-card.active {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+    }
+    .profile-card .profile-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--surface-3);
+      flex-shrink: 0;
+      transition: all 0.2s;
+    }
+    .profile-card.active .profile-dot {
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+    .profile-card .profile-info { flex: 1; min-width: 0; }
+    .profile-card .profile-name { font-size: 12px; font-weight: 600; }
+    .profile-card .profile-url {
+      font-size: 10px;
+      color: var(--text-dim);
+      font-family: monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .profile-card .profile-status {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 10px;
+      flex-shrink: 0;
+    }
+    .profile-card .profile-status.ok { background: var(--green-dim); color: var(--green); }
+    .profile-card .profile-status.err { background: var(--red-dim); color: var(--red); }
+    .profile-card .profile-status.unknown { background: var(--surface-3); color: var(--text-muted); }
+
+    .profile-actions {
+      display: flex;
+      gap: 4px;
+    }
+    .profile-actions button {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 4px;
+      font-size: 12px;
+      transition: color 0.15s;
+    }
+    .profile-actions button:hover { color: var(--text); }
+    .profile-actions button.delete:hover { color: var(--red); }
+
+    /* ── Batch Download ── */
+    .batch-result {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      display: none;
+    }
+    .batch-result.show { display: block; }
+    .batch-result.ok { background: var(--green-dim); color: var(--green); }
+    .batch-result.err { background: var(--red-dim); color: var(--red); }
   </style>
 </head>
 <body>
@@ -561,13 +731,14 @@
         </svg>
       </div>
       <h1>Send to Motrix</h1>
-      <span class="ver">v1.0.0</span>
+      <span class="ver">v2.0.0</span>
     </div>
   </div>
 
   <div class="tabs">
     <div class="tab active" data-panel="settings">设置</div>
     <div class="tab" data-panel="tasks">任务</div>
+    <div class="tab" data-panel="batch">批量</div>
     <div class="tab" data-panel="history">历史</div>
   </div>
 
@@ -579,8 +750,18 @@
       <button class="btn-sm" id="btnTest">测试</button>
     </div>
 
+    <!-- 服务器配置 -->
     <div class="section">
-      <div class="section-title">RPC 连接</div>
+      <div class="section-head">
+        <span class="section-title">服务器配置</span>
+        <button class="section-action" id="btnAddProfile">+ 添加</button>
+      </div>
+      <div id="profileList" class="profile-list"></div>
+    </div>
+
+    <!-- 当前服务器详情 -->
+    <div class="section">
+      <div class="section-title">连接详情</div>
       <div class="card">
         <div class="input-row">
           <label>RPC 地址</label>
@@ -593,6 +774,24 @@
       </div>
     </div>
 
+    <!-- 速度限制 -->
+    <div class="section">
+      <div class="section-title">速度限制</div>
+      <div class="card">
+        <div class="speed-bar">
+          <label>全局限速</label>
+          <div class="speed-presets">
+            <span class="speed-preset active" data-speed="0">不限</span>
+            <span class="speed-preset" data-speed="1048576">1 MB/s</span>
+            <span class="speed-preset" data-speed="5242880">5 MB/s</span>
+            <span class="speed-preset" data-speed="10485760">10 MB/s</span>
+            <span class="speed-preset" data-speed="52428800">50 MB/s</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 自动拦截 -->
     <div class="section">
       <div class="section-title">自动拦截</div>
       <div class="card">
@@ -603,6 +802,16 @@
           </div>
           <label class="switch">
             <input id="autoIntercept" type="checkbox">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="toggle-row">
+          <div class="toggle-label">
+            <span class="name">下载完成通知</span>
+            <span class="desc">任务完成时显示详细通知</span>
+          </div>
+          <label class="switch">
+            <input id="downloadCompleteNotify" type="checkbox">
             <span class="slider"></span>
           </label>
         </div>
@@ -625,6 +834,13 @@
       <button id="btnSave" class="btn btn-primary">保存设置</button>
       <button id="btnReset" class="btn btn-secondary">恢复默认</button>
     </div>
+
+    <!-- 导出/导入 -->
+    <div class="btn-row" style="margin-top: 8px;">
+      <button id="btnExport" class="btn btn-secondary" style="font-size: 12px;">📤 导出配置</button>
+      <button id="btnImport" class="btn btn-secondary" style="font-size: 12px;">📥 导入配置</button>
+    </div>
+    <input id="importFile" type="file" accept=".json" style="display:none;">
   </div>
 
   <!-- ══════ 任务面板 ══════ -->
@@ -635,6 +851,24 @@
       <button class="btn-sm" id="btnRefresh">刷新</button>
     </div>
     <div id="taskList" class="task-list"></div>
+  </div>
+
+  <!-- ══════ 批量下载面板 ══════ -->
+  <div id="panel-batch" class="panel">
+    <div class="section">
+      <div class="section-title">批量下载</div>
+      <div class="card">
+        <div class="input-row">
+          <label>粘贴链接（每行一个，或用空格/逗号分隔）</label>
+          <textarea id="batchUrls" placeholder="https://example.com/file1.zip&#10;https://example.com/file2.mp4&#10;https://example.com/file3.pdf" rows="5"></textarea>
+        </div>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button id="btnBatchSend" class="btn btn-primary">全部发送到 Motrix</button>
+      <button id="btnBatchClear" class="btn btn-secondary">清空</button>
+    </div>
+    <div id="batchResult" class="batch-result"></div>
   </div>
 
   <!-- ══════ 历史面板 ══════ -->

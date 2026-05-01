@@ -1,5 +1,6 @@
 // ============================================================
-// Send to Motrix - Popup UI Logic
+// Send to Motrix - Popup UI Logic v2.0
+// 标签页：设置 / 任务 / 批量 / 历史
 // ============================================================
 
 // ── DOM helpers ──
@@ -71,7 +72,6 @@ function switchTab(name) {
   $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.panel === name));
   $$(".panel").forEach(p => p.classList.toggle("active", p.id === "panel-" + name));
 
-  // 清除任务自动刷新
   if (taskRefreshTimer) {
     clearInterval(taskRefreshTimer);
     taskRefreshTimer = null;
@@ -79,7 +79,6 @@ function switchTab(name) {
 
   if (name === "tasks") {
     refreshTasks();
-    // 每 3 秒自动刷新任务列表
     taskRefreshTimer = setInterval(refreshTasks, 3000);
   }
   if (name === "history") refreshHistory();
@@ -90,15 +89,9 @@ $$(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.pa
 // ══════════════════════════════════════════
 //  MESSAGE HELPER
 // ══════════════════════════════════════════
-/**
- * 发送消息到 background service worker
- * @param {Object} msg - 消息对象
- * @returns {Promise<Object>} - 响应对象
- */
 function sendMsg(msg) {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage(msg, (resp) => {
-      // 检查是否有运行时错误
       if (chrome.runtime.lastError) {
         console.error("Message error:", chrome.runtime.lastError);
         resolve({ error: chrome.runtime.lastError.message });
@@ -107,6 +100,99 @@ function sendMsg(msg) {
       }
     });
   });
+}
+
+// ══════════════════════════════════════════
+//  SERVER PROFILES
+// ══════════════════════════════════════════
+let serverProfiles = [];
+let activeProfileIndex = 0;
+
+async function loadProfiles() {
+  const resp = await sendMsg({ action: "getServerProfiles" });
+  if (resp.ok) {
+    serverProfiles = resp.profiles;
+    activeProfileIndex = resp.activeIndex;
+  }
+  renderProfiles();
+}
+
+function renderProfiles() {
+  const box = $("#profileList");
+  if (serverProfiles.length === 0) {
+    box.innerHTML = `<div class="empty" style="padding:16px"><div class="msg">暂无服务器配置</div></div>`;
+    return;
+  }
+
+  box.innerHTML = serverProfiles.map((p, i) => {
+    const isActive = i === activeProfileIndex;
+    return `
+      <div class="profile-card ${isActive ? "active" : ""}" data-index="${i}">
+        <span class="profile-dot"></span>
+        <div class="profile-info">
+          <div class="profile-name">${esc(p.name)}</div>
+          <div class="profile-url">${esc(p.url)}</div>
+        </div>
+        <div class="profile-actions">
+          ${!isActive ? `<button class="delete" data-delete="${i}" title="删除">🗑</button>` : ""}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // 点击切换
+  box.querySelectorAll(".profile-card").forEach(card => {
+    card.addEventListener("click", async (e) => {
+      if (e.target.closest(".delete")) return;
+      const idx = parseInt(card.dataset.index);
+      if (idx === activeProfileIndex) return;
+
+      const resp = await sendMsg({ action: "switchProfile", index: idx });
+      if (resp.ok) {
+        activeProfileIndex = idx;
+        renderProfiles();
+        loadConfig(); // 刷新输入框
+        testConnection();
+        showToast("✅ 已切换到: " + serverProfiles[idx].name);
+      } else {
+        showToast("❌ 切换失败: " + (resp.error || "未知错误"));
+      }
+    });
+  });
+
+  // 删除
+  box.querySelectorAll("[data-delete]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.delete);
+      serverProfiles.splice(idx, 1);
+      if (activeProfileIndex >= serverProfiles.length) {
+        activeProfileIndex = Math.max(0, serverProfiles.length - 1);
+      }
+      await saveProfiles();
+      renderProfiles();
+      showToast("已删除服务器配置");
+    });
+  });
+}
+
+async function saveProfiles() {
+  const cfg = { ...currentConfig, serverProfiles, activeProfileIndex };
+  await chrome.storage.local.set({ config: cfg });
+  currentConfig = cfg;
+}
+
+async function addProfile() {
+  const name = prompt("服务器名称:", "远程 Aria2");
+  if (!name) return;
+  const url = prompt("RPC 地址:", "http://192.168.1.100:6800/jsonrpc");
+  if (!url) return;
+  const secret = prompt("RPC Secret (可留空):", "") || "";
+
+  serverProfiles.push({ name, url, secret });
+  await saveProfiles();
+  renderProfiles();
+  showToast("✅ 已添加: " + name);
 }
 
 // ══════════════════════════════════════════
@@ -135,31 +221,47 @@ async function loadConfig() {
   const stored = await chrome.storage.local.get("config");
   currentConfig = { ...DEFAULT_CONFIG, ...(stored.config || {}) };
 
-  $("#rpcUrl").value = currentConfig.rpcUrl;
-  $("#rpcSecret").value = currentConfig.rpcSecret;
+  // 从当前活跃 profile 获取 RPC 信息
+  const idx = Math.min(currentConfig.activeProfileIndex || 0, (currentConfig.serverProfiles || []).length - 1);
+  const profile = (currentConfig.serverProfiles || [])[idx] || {};
+
+  $("#rpcUrl").value = profile.url || currentConfig.rpcUrl;
+  $("#rpcSecret").value = profile.secret || currentConfig.rpcSecret;
   $("#autoIntercept").checked = currentConfig.autoIntercept;
+  $("#downloadCompleteNotify").checked = currentConfig.downloadCompleteNotify !== false;
   $("#minSize").value = currentConfig.interceptMinSize;
   renderExtTags(currentConfig.interceptExtensions);
+
+  // 速度限制预设
+  renderSpeedPresets(currentConfig.globalSpeedLimit || 0);
 }
 
-/**
- * 保存配置
- */
+function renderSpeedPresets(current) {
+  $$(".speed-preset").forEach(btn => {
+    const speed = parseInt(btn.dataset.speed);
+    btn.classList.toggle("active", speed === current);
+  });
+}
+
 async function saveConfig() {
-  // 验证 RPC URL
   const rpcUrl = $("#rpcUrl").value.trim() || DEFAULT_CONFIG.rpcUrl;
-  try {
-    new URL(rpcUrl);
-  } catch (err) {
+  try { new URL(rpcUrl); } catch {
     showToast("❌ RPC 地址格式不正确");
     return;
+  }
+
+  // 更新当前活跃 profile 的 RPC 信息
+  const idx = Math.min(currentConfig.activeProfileIndex || 0, (currentConfig.serverProfiles || []).length - 1);
+  if (currentConfig.serverProfiles && currentConfig.serverProfiles[idx]) {
+    currentConfig.serverProfiles[idx].url = rpcUrl;
+    currentConfig.serverProfiles[idx].secret = $("#rpcSecret").value.trim();
   }
 
   currentConfig.rpcUrl = rpcUrl;
   currentConfig.rpcSecret = $("#rpcSecret").value.trim();
   currentConfig.autoIntercept = $("#autoIntercept").checked;
-  
-  // 验证最小文件大小
+  currentConfig.downloadCompleteNotify = $("#downloadCompleteNotify").checked;
+
   const minSize = parseFloat($("#minSize").value);
   if (isNaN(minSize) || minSize < 0) {
     showToast("❌ 最小文件大小必须为正数");
@@ -176,32 +278,17 @@ async function resetConfig() {
   currentConfig = { ...DEFAULT_CONFIG };
   await chrome.storage.local.set({ config: currentConfig });
   await loadConfig();
+  await loadProfiles();
   showToast("已恢复默认设置");
   testConnection();
 }
 
-/**
- * 添加文件后缀
- */
 function addExtension() {
   const ext = $("#newExt").value.trim().toLowerCase().replace(/^\./, "");
-  if (!ext) {
-    showToast("❌ 请输入文件后缀");
-    return;
-  }
-  // 验证后缀格式（只允许字母、数字、下划线）
-  if (!/^[a-z0-9_]+$/.test(ext)) {
-    showToast("❌ 后缀格式不正确");
-    return;
-  }
-  if (currentConfig.interceptExtensions.includes(ext)) {
-    showToast("❌ 该后缀已存在");
-    return;
-  }
-  if (currentConfig.interceptExtensions.length >= 50) {
-    showToast("❌ 最多添加 50 个后缀");
-    return;
-  }
+  if (!ext) { showToast("❌ 请输入文件后缀"); return; }
+  if (!/^[a-z0-9_]+$/.test(ext)) { showToast("❌ 后缀格式不正确"); return; }
+  if (currentConfig.interceptExtensions.includes(ext)) { showToast("❌ 该后缀已存在"); return; }
+  if (currentConfig.interceptExtensions.length >= 50) { showToast("❌ 最多添加 50 个后缀"); return; }
   currentConfig.interceptExtensions.push(ext);
   renderExtTags(currentConfig.interceptExtensions);
   $("#newExt").value = "";
@@ -209,9 +296,6 @@ function addExtension() {
 }
 
 // ── Test connection ──
-/**
- * 测试与 Aria2/Motrix 的连接
- */
 async function testConnection() {
   const bar = $("#statusBar");
   const text = $("#statusText");
@@ -220,7 +304,6 @@ async function testConnection() {
 
   try {
     const resp = await sendMsg({ action: "testConnection" });
-
     if (resp.ok) {
       bar.className = "status-bar ok";
       text.textContent = `已连接 — Aria2 v${resp.version}`;
@@ -235,22 +318,24 @@ async function testConnection() {
 }
 
 // ══════════════════════════════════════════
+//  SPEED LIMIT
+// ══════════════════════════════════════════
+async function setSpeedLimit(bytesPerSec) {
+  const resp = await sendMsg({ action: "setSpeedLimit", bytesPerSec });
+  if (resp.ok) {
+    currentConfig.globalSpeedLimit = bytesPerSec;
+    renderSpeedPresets(bytesPerSec);
+    showToast(bytesPerSec > 0 ? `限速: ${formatSpeed(bytesPerSec)}` : "已取消限速");
+  } else {
+    showToast("❌ 设置失败: " + (resp.error || "未知错误"));
+  }
+}
+
+// ══════════════════════════════════════════
 //  TASKS
 // ══════════════════════════════════════════
 let tasksConnected = false;
 
-/**
- * 刷新任务列表
- * 注意: aria2 的 waiting 列表可能包含暂停的任务，需要根据 status 字段判断
- *
- * 任务状态说明:
- * - active: 正在下载
- * - waiting: 等待中（未开始）
- * - paused: 已暂停（可能在 waiting 列表中）
- * - complete: 已完成
- * - error: 下载失败
- * - removed: 已删除
- */
 async function refreshTasks() {
   const bar = $("#taskStatusBar");
   const text = $("#taskStatusText");
@@ -285,9 +370,7 @@ async function refreshTasks() {
 
   let html = "";
   active.forEach(t => { html += renderTask(t, "active"); });
-  // 处理 waiting 列表中的暂停任务
   waiting.forEach(t => {
-    // aria2 中暂停的任务 status 为 "paused"，即使在 waiting 列表中
     const status = t.status === "paused" ? "paused" : "waiting";
     html += renderTask(t, status);
   });
@@ -300,7 +383,6 @@ async function refreshTasks() {
 
   list.innerHTML = html;
 
-  // 绑定操作按钮
   list.querySelectorAll("[data-action]").forEach(btn => {
     btn.addEventListener("click", async () => {
       const action = btn.dataset.action;
@@ -332,12 +414,9 @@ function renderTask(t, status) {
   const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
   const speed = parseInt(t.downloadSpeed) || 0;
 
-  // 安全提取文件名
   let name = "";
   if (t.files && t.files[0]) {
-    if (t.files[0].path) {
-      name = t.files[0].path.split("/").pop();
-    }
+    if (t.files[0].path) name = t.files[0].path.split("/").pop();
     if (!name && t.files[0].uris && t.files[0].uris[0]) {
       name = truncateUrl(t.files[0].uris[0].uri || "");
     }
@@ -345,12 +424,8 @@ function renderTask(t, status) {
   name = name || "未知文件";
 
   const statusLabels = {
-    active: "下载中",
-    waiting: "等待中",
-    paused: "已暂停",
-    complete: "已完成",
-    error: "失败",
-    removed: "已删除"
+    active: "下载中", waiting: "等待中", paused: "已暂停",
+    complete: "已完成", error: "失败", removed: "已删除"
   };
 
   let actions = "";
@@ -360,18 +435,14 @@ function renderTask(t, status) {
       <button data-action="remove" data-gid="${esc(t.gid)}" class="danger">✕ 移除</button>
     `;
   } else if (status === "waiting") {
-    actions = `
-      <button data-action="remove" data-gid="${esc(t.gid)}" class="danger">✕ 移除</button>
-    `;
+    actions = `<button data-action="remove" data-gid="${esc(t.gid)}" class="danger">✕ 移除</button>`;
   } else if (status === "paused") {
     actions = `
       <button data-action="resume" data-gid="${esc(t.gid)}">▶ 继续</button>
       <button data-action="remove" data-gid="${esc(t.gid)}" class="danger">✕ 移除</button>
     `;
   } else if (status === "error" || status === "removed" || status === "complete") {
-    actions = `
-      <button data-action="forceRemove" data-gid="${esc(t.gid)}" class="danger">✕ 清除</button>
-    `;
+    actions = `<button data-action="forceRemove" data-gid="${esc(t.gid)}" class="danger">✕ 清除</button>`;
   }
 
   return `
@@ -393,6 +464,50 @@ function renderTask(t, status) {
 }
 
 // ══════════════════════════════════════════
+//  BATCH DOWNLOAD
+// ══════════════════════════════════════════
+async function batchSend() {
+  const text = $("#batchUrls").value.trim();
+  if (!text) {
+    showToast("❌ 请输入链接");
+    return;
+  }
+
+  // 解析 URL：按行、空格、逗号分割，过滤有效 HTTP(S) 链接
+  const raw = text.split(/[\n\r\s,;]+/).map(s => s.trim()).filter(Boolean);
+  const urls = raw.filter(u => /^https?:\/\//i.test(u));
+
+  if (urls.length === 0) {
+    showToast("❌ 未找到有效链接");
+    return;
+  }
+
+  const resultBox = $("#batchResult");
+  resultBox.className = "batch-result show";
+  resultBox.style.background = "var(--amber-dim)";
+  resultBox.style.color = "var(--amber)";
+  resultBox.textContent = `正在发送 ${urls.length} 个链接…`;
+
+  const resp = await sendMsg({ action: "batchSend", urls });
+
+  if (resp.ok) {
+    resultBox.className = "batch-result show ok";
+    resultBox.textContent = `✅ 成功 ${resp.success} 个` + (resp.failed > 0 ? `，失败 ${resp.failed} 个` : "");
+    showToast(`批量完成: ${resp.success} 成功`);
+  } else {
+    resultBox.className = "batch-result show err";
+    resultBox.textContent = "❌ " + (resp.error || "发送失败");
+  }
+}
+
+function clearBatch() {
+  $("#batchUrls").value = "";
+  const resultBox = $("#batchResult");
+  resultBox.className = "batch-result";
+  resultBox.textContent = "";
+}
+
+// ══════════════════════════════════════════
 //  HISTORY
 // ══════════════════════════════════════════
 async function refreshHistory() {
@@ -408,11 +523,20 @@ async function refreshHistory() {
   box.innerHTML = items.map(h => {
     const isOk = h.status === "sent" || h.status === "intercepted";
     const name = h.filename || truncateUrl(h.url || "");
-    const detail = h.status === "intercepted" ? "自动拦截"
-      : h.status === "sent" ? "右键发送"
-      : h.status === "failed" ? "发送失败"
-      : h.status === "intercept-failed" ? "拦截失败"
-      : h.status;
+    const sourceLabel = {
+      "context-menu": "右键发送",
+      "auto-intercept": "自动拦截",
+      "batch-download": "批量下载",
+      "batch": "批量下载",
+      "manual": "手动输入"
+    };
+    const statusLabel = {
+      "sent": "已发送",
+      "intercepted": "已拦截",
+      "failed": "发送失败",
+      "intercept-failed": "拦截失败"
+    };
+    const detail = (sourceLabel[h.source] || h.source) + " · " + (statusLabel[h.status] || h.status);
 
     return `
       <div class="history-item">
@@ -433,6 +557,48 @@ async function clearHistory() {
 }
 
 // ══════════════════════════════════════════
+//  EXPORT / IMPORT
+// ══════════════════════════════════════════
+async function exportConfig() {
+  const resp = await sendMsg({ action: "exportConfig" });
+  if (!resp.ok) {
+    showToast("❌ 导出失败");
+    return;
+  }
+
+  const blob = new Blob([JSON.stringify(resp.config, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "motrix-link-config-" + new Date().toISOString().slice(0, 10) + ".json";
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("✅ 配置已导出");
+}
+
+function triggerImport() {
+  $("#importFile").click();
+}
+
+async function importConfig(file) {
+  try {
+    const text = await file.text();
+    const config = JSON.parse(text);
+    const resp = await sendMsg({ action: "importConfig", config });
+    if (resp.ok) {
+      showToast("✅ 配置已导入");
+      await loadConfig();
+      await loadProfiles();
+      testConnection();
+    } else {
+      showToast("❌ " + (resp.error || "导入失败"));
+    }
+  } catch (err) {
+    showToast("❌ 文件格式错误");
+  }
+}
+
+// ══════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════
 $("#btnTest").addEventListener("click", testConnection);
@@ -442,10 +608,30 @@ $("#btnAddExt").addEventListener("click", addExtension);
 $("#newExt").addEventListener("keydown", e => { if (e.key === "Enter") addExtension(); });
 $("#btnRefresh").addEventListener("click", refreshTasks);
 $("#btnClearHistory").addEventListener("click", clearHistory);
+$("#btnAddProfile").addEventListener("click", addProfile);
+$("#btnBatchSend").addEventListener("click", batchSend);
+$("#btnBatchClear").addEventListener("click", clearBatch);
+$("#btnExport").addEventListener("click", exportConfig);
+$("#btnImport").addEventListener("click", triggerImport);
+$("#importFile").addEventListener("change", (e) => {
+  if (e.target.files[0]) importConfig(e.target.files[0]);
+  e.target.value = "";
+});
+
+// 速度限制预设
+$$(".speed-preset").forEach(btn => {
+  btn.addEventListener("click", () => {
+    setSpeedLimit(parseInt(btn.dataset.speed));
+  });
+});
 
 // popup 关闭时清理定时器
 window.addEventListener("unload", () => {
   if (taskRefreshTimer) clearInterval(taskRefreshTimer);
 });
 
-loadConfig().then(() => testConnection());
+// 启动
+loadConfig().then(() => {
+  loadProfiles();
+  testConnection();
+});

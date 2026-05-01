@@ -11,10 +11,19 @@
 
 ## ✨ 功能特性
 
+### v2.0 新增
+- **🏷️ 角标显示** — 扩展图标实时显示活跃下载数量
+- **🖥️ 多服务器配置** — 保存多个 RPC 服务器，一键切换（家庭/公司/远程）
+- **📦 批量下载** — 粘贴多个链接，一次性全部发送到 Motrix
+- **⚡ 全局速度限制** — 预设速度档位（1/5/10/50 MB/s），一键限速
+- **📤📥 导出/导入配置** — JSON 格式备份与迁移设置
+- **⌨️ 快捷键** — `Alt+Shift+M` 快速切换自动拦截
+
+### 核心功能
 - **🖱️ 右键下载** — 在任意链接/图片/视频上右键，选择「使用 Motrix 下载」
 - **🔄 自动拦截** — 开启后自动拦截浏览器下载请求，转发到 Motrix（可配置最小文件大小和文件后缀）
 - **📋 任务管理** — 在扩展内查看下载进度、暂停/继续/移除任务，支持自动刷新
-- **📜 历史记录** — 记录所有操作（右键发送、自动拦截），方便回溯
+- **📜 历史记录** — 记录所有操作（右键发送、自动拦截、批量下载），方便回溯
 - **⚙️ 灵活配置** — 支持自定义 RPC 地址、Secret、拦截规则
 - **🌙 深色主题** — 精心设计的深色 UI，护眼且美观
 - **🔒 安全可靠** — 所有用户输入均经过 HTML 转义，防止 XSS
@@ -54,6 +63,17 @@ aria2c --enable-rpc --rpc-listen-port=16800 --rpc-allow-origin-all
 | **自动拦截** | 关闭 | 是否自动拦截浏览器下载请求 |
 | **最小文件大小** | 1 MB | 低于此大小的文件不拦截 |
 | **文件后缀** | 见下表 | 只拦截匹配后缀的文件 |
+| **下载完成通知** | 开启 | 任务完成时显示详细通知 |
+
+### v2.0 新增配置
+
+| 选项 | 说明 |
+|------|------|
+| **服务器配置** | 保存多个 RPC 服务器，点击切换 |
+| **全局速度限制** | 预设 5 档：不限 / 1 / 5 / 10 / 50 MB/s |
+| **导出配置** | 将所有设置导出为 JSON 文件 |
+| **导入配置** | 从 JSON 文件恢复设置 |
+| **快捷键** | `Alt+Shift+M` 切换自动拦截开关 |
 
 ### 默认拦截文件类型
 
@@ -98,15 +118,25 @@ RPC Secret: your-secret-token
 MotrixExtension/
 ├── manifest.json          # 扩展配置（Manifest V3）
 ├── config.js              # 共享配置（background + popup 共用）
-├── background.js          # 后台服务（RPC 通信、拦截逻辑、任务管理）
+├── background.js          # 后台服务（RPC 通信、拦截逻辑、任务管理、角标）
 ├── popup.html             # 弹窗界面（深色主题）
-├── popup.js               # 弹窗逻辑（三标签页：设置/任务/历史）
+├── popup.js               # 弹窗逻辑（四标签页：设置/任务/批量/历史）
 └── icons/                 # 图标资源
     ├── icon16.png         # 16x16 图标
     ├── icon48.png         # 48x48 图标
     ├── icon128.png        # 128x128 图标
     └── icon-error.png     # 错误状态图标
 ```
+
+---
+
+## ⌨️ 快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| `Alt+Shift+M` | 切换自动拦截开关 |
+
+可在 `chrome://extensions/shortcuts` 中自定义。
 
 ---
 
@@ -148,10 +178,6 @@ MotrixExtension/
 
 ### 问题 3：右键菜单不显示
 
-**原因分析：**
-- 扩展未正确加载
-- 浏览器缓存问题
-
 **解决方案：**
 1. 打开 `chrome://extensions/`
 2. 找到「Send to Motrix」扩展
@@ -160,28 +186,19 @@ MotrixExtension/
 
 ### 问题 4：发送失败，提示「发送失败」
 
-**原因分析：**
-- RPC 连接超时
-- Aria2 / Motrix 崩溃或重启
-- 网络连接中断
-
 **解决方案：**
 1. 点击设置页的「测试连接」按钮，检查连接状态
 2. 重启 Aria2 / Motrix 服务
 3. 检查网络连接
 4. 查看浏览器控制台（F12）的错误日志
 
-### 问题 5：拦截后文件未出现在 Motrix
-
-**原因分析：**
-- 任务已发送但未刷新
-- Motrix 显示延迟
-- 文件已被浏览器下载
+### 问题 5：多服务器切换后连接失败
 
 **解决方案：**
-1. 点击扩展的「任务」标签页，手动点击「刷新」
-2. 等待 3-5 秒，让 Motrix 处理新任务
-3. 检查 Motrix 的「已完成」或「回收站」标签页
+1. 确认目标服务器的 Aria2/Motrix 已启动
+2. 检查该服务器的 RPC 地址和端口
+3. 如有 Secret，确认已正确填写
+4. 使用「测试」按钮验证连接
 
 ---
 
@@ -191,64 +208,10 @@ MotrixExtension/
 
 本扩展使用 Aria2 JSON-RPC 2.0 协议。以下是常用方法：
 
-#### aria2.addUri
-发送下载链接到 Aria2。
-
-**请求：**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "motrix-ext-xxx",
-  "method": "aria2.addUri",
-  "params": ["token:secret", ["http://example.com/file.zip"], {}]
-}
-```
-
-**响应：**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "motrix-ext-xxx",
-  "result": "2089b05ecca3d829"
-}
-```
-
-#### aria2.tellActive
-获取正在下载的任务。
-
-**请求：**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "motrix-ext-xxx",
-  "method": "aria2.tellActive",
-  "params": ["token:secret"]
-}
-```
-
-**响应：**
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "motrix-ext-xxx",
-  "result": [
-    {
-      "gid": "2089b05ecca3d829",
-      "status": "active",
-      "totalLength": "1000000",
-      "completedLength": "500000",
-      "downloadSpeed": "100000",
-      "eta": "5",
-      "files": [{"path": "/home/user/file.zip"}]
-    }
-  ]
-}
-```
-
-#### 其他常用方法
-
 | 方法 | 功能 |
 |------|------|
+| `aria2.addUri` | 添加下载任务 |
+| `aria2.tellActive` | 获取正在下载的任务 |
 | `aria2.tellWaiting` | 获取等待中的任务 |
 | `aria2.tellStopped` | 获取已停止的任务 |
 | `aria2.pause` | 暂停任务 |
@@ -256,6 +219,8 @@ MotrixExtension/
 | `aria2.remove` | 移除任务 |
 | `aria2.forceRemove` | 强制移除任务 |
 | `aria2.getVersion` | 获取 Aria2 版本 |
+| `aria2.changeGlobalOption` | 修改全局选项（如速度限制） |
+| `aria2.getGlobalOption` | 获取全局选项 |
 
 详见 [Aria2 RPC 文档](https://aria2.github.io/manual/en/html/aria2c.html#rpc-interface)。
 
@@ -267,6 +232,7 @@ MotrixExtension/
 - ✅ RPC URL 使用 URL 构造函数验证
 - ✅ 文件后缀使用正则表达式验证（仅允许字母、数字、下划线）
 - ✅ 最小文件大小验证为非负数
+- ✅ 导入配置时进行结构验证
 
 ### XSS 防护
 - ✅ 所有用户输入在显示前进行 HTML 转义
@@ -277,6 +243,7 @@ MotrixExtension/
 - ✅ 所有数据存储在本地（`chrome.storage.local`）
 - ✅ 不收集用户信息
 - ✅ 不上传任何数据到远程服务器
+- ✅ 配置导出仅包含设置，不含历史记录
 
 ---
 
@@ -303,41 +270,21 @@ MotrixExtension/
 
 - **config.js** — 默认配置常量，被 background.js 和 popup.js 共用
 - **background.js** — 后台服务，处理：
-  - 右键菜单事件
+  - 右键菜单事件（单链接 + 批量）
   - 自动拦截逻辑
   - RPC 通信和重试
   - 任务历史管理
+  - 角标更新
+  - 快捷键处理
   - 消息路由
 - **popup.js** — 弹窗逻辑，处理：
-  - 标签页切换
+  - 标签页切换（设置/任务/批量/历史）
+  - 服务器配置管理
   - 设置加载/保存/验证
   - 任务列表刷新和操作
+  - 批量下载
   - 历史记录显示
-
-### 添加新功能
-
-**示例：添加新的 RPC 方法**
-
-1. 在 `background.js` 中添加函数：
-   ```javascript
-   async function getTaskStats(gid, config) {
-     return rpcCall("aria2.getFiles", [gid], config);
-   }
-   ```
-
-2. 在消息处理中添加新的 action：
-   ```javascript
-   case "getTaskStats": {
-     const stats = await getTaskStats(msg.gid);
-     sendResponse({ stats });
-     break;
-   }
-   ```
-
-3. 在 `popup.js` 中调用：
-   ```javascript
-   const resp = await sendMsg({ action: "getTaskStats", gid: "xxx" });
-   ```
+  - 配置导出/导入
 
 ---
 
@@ -378,5 +325,5 @@ MotrixExtension/
 - **GitHub Issues** — 报告 Bug 或提出建议
 - **GitHub Discussions** — 讨论功能和改进
 
-**最后更新**：2026-05-01  
-**版本**：1.0.0
+**最后更新**：2026-05-02  
+**版本**：2.0.0

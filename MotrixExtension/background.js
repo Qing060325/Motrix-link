@@ -31,11 +31,15 @@ async function getConfig() {
  */
 async function getActiveRpc() {
   const cfg = await getConfig();
-  const idx = Math.min(cfg.activeProfileIndex, cfg.serverProfiles.length - 1);
-  const profile = cfg.serverProfiles[idx] || cfg.serverProfiles[0];
+  const profiles = cfg.serverProfiles || [];
+  if (profiles.length === 0) {
+    return { rpcUrl: cfg.rpcUrl, rpcSecret: cfg.rpcSecret };
+  }
+  const idx = Math.min(cfg.activeProfileIndex, profiles.length - 1);
+  const profile = profiles[idx];
   return {
-    rpcUrl: profile.url || cfg.rpcUrl,
-    rpcSecret: profile.secret || cfg.rpcSecret
+    rpcUrl: profile?.url || cfg.rpcUrl,
+    rpcSecret: profile?.secret || cfg.rpcSecret
   };
 }
 
@@ -61,15 +65,17 @@ function sizeInMB(bytes) {
 }
 
 // ---------- 任务历史 ----------
+let _historyQueue = Promise.resolve();
 async function addToHistory(entry) {
-  const { taskHistory = [] } = await chrome.storage.local.get("taskHistory");
-  taskHistory.unshift({
-    ...entry,
-    time: Date.now()
-  });
-  await chrome.storage.local.set({
-    taskHistory: taskHistory.slice(0, TASK_HISTORY_MAX)
-  });
+  const promise = _historyQueue.then(async () => {
+    const { taskHistory = [] } = await chrome.storage.local.get("taskHistory");
+    taskHistory.unshift({ ...entry, time: Date.now() });
+    await chrome.storage.local.set({
+      taskHistory: taskHistory.slice(0, TASK_HISTORY_MAX)
+    });
+  }).catch(() => {});
+  _historyQueue = promise;
+  await promise;
 }
 
 async function getHistory() {
@@ -363,10 +369,21 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
  * 从文本中提取所有 URL
  */
 function extractUrls(text) {
-  const urlPattern = /https?:\/\/[^\s<>"'`{}|\\^[\]]+/gi;
+  const urlPattern = /https?:\/\/[^\s<>"'`{}\[\]|\\^]+/g;
   const matches = text.match(urlPattern) || [];
-  // 去重
-  return [...new Set(matches.map(u => u.replace(/[.,;:!?)]+$/, "")))];
+  const seen = new Set();
+  const urls = [];
+  for (let raw of matches) {
+    raw = raw.replace(/[.,;:!?]+$/, "");
+    try {
+      new URL(raw);
+      if (!seen.has(raw)) {
+        seen.add(raw);
+        urls.push(raw);
+      }
+    } catch {}
+  }
+  return urls;
 }
 
 // ---------- 自动拦截下载 ----------
@@ -441,6 +458,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 // ---------- 监听来自 popup 的消息 ----------
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg || typeof msg.action !== "string") {
+    sendResponse({ error: "Invalid message" });
+    return;
+  }
   (async () => {
     try {
       const rpcConfig = await getActiveRpc();

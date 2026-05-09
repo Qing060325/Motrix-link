@@ -7,7 +7,8 @@
     "contextMenus",
     "downloads",
     "storage",
-    "notifications"
+    "notifications",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -17,11 +18,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Send to Motrix",
-    "default_badge": {
-      "text": "",
-      "color": "#6366f1"
-    }
+    "default_title": "Send to Motrix"
   },
   "icons": {
     "16": "icons/icon16.png",

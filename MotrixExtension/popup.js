@@ -15,27 +15,15 @@ function showToast(msg, ms = 1800) {
   setTimeout(() => t.classList.remove("show"), ms);
 }
 
-// ── HTML 转义（防 XSS） ──
+// ── HTML 转义（防 XSS，缓存 div 避免重复创建 DOM） ──
+const escDiv = document.createElement("div");
 function esc(str) {
   if (!str) return "";
-  const d = document.createElement("div");
-  d.textContent = str;
-  return d.innerHTML;
+  escDiv.textContent = str;
+  return escDiv.innerHTML;
 }
 
-// ── Format helpers ──
-function formatBytes(bytes) {
-  if (!bytes || bytes <= 0) return "—";
-  const u = ["B", "KB", "MB", "GB"];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), u.length - 1);
-  return (bytes / Math.pow(1024, i)).toFixed(i > 1 ? 1 : 0) + " " + u[i];
-}
-
-function formatSpeed(bps) {
-  if (!bps || bps <= 0) return "—";
-  return formatBytes(bps) + "/s";
-}
-
+// ── Time formatting ──
 function formatTime(sec) {
   if (!sec || sec <= 0) return "—";
   if (sec < 60) return sec + "s";
@@ -89,9 +77,14 @@ $$(".tab").forEach(t => t.addEventListener("click", () => switchTab(t.dataset.pa
 // ══════════════════════════════════════════
 //  MESSAGE HELPER
 // ══════════════════════════════════════════
-function sendMsg(msg) {
+function sendMsg(msg, timeout = 15000) {
   return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      resolve({ error: "请求超时，请检查与 Motrix 的连接" });
+    }, timeout);
+
     chrome.runtime.sendMessage(msg, (resp) => {
+      clearTimeout(timer);
       if (chrome.runtime.lastError) {
         console.error("Message error:", chrome.runtime.lastError);
         resolve({ error: chrome.runtime.lastError.message });
@@ -139,41 +132,6 @@ function renderProfiles() {
       </div>
     `;
   }).join("");
-
-  // 点击切换
-  box.querySelectorAll(".profile-card").forEach(card => {
-    card.addEventListener("click", async (e) => {
-      if (e.target.closest(".delete")) return;
-      const idx = parseInt(card.dataset.index);
-      if (idx === activeProfileIndex) return;
-
-      const resp = await sendMsg({ action: "switchProfile", index: idx });
-      if (resp.ok) {
-        activeProfileIndex = idx;
-        renderProfiles();
-        loadConfig(); // 刷新输入框
-        testConnection();
-        showToast("✅ 已切换到: " + serverProfiles[idx].name);
-      } else {
-        showToast("❌ 切换失败: " + (resp.error || "未知错误"));
-      }
-    });
-  });
-
-  // 删除
-  box.querySelectorAll("[data-delete]").forEach(btn => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const idx = parseInt(btn.dataset.delete);
-      serverProfiles.splice(idx, 1);
-      if (activeProfileIndex >= serverProfiles.length) {
-        activeProfileIndex = Math.max(0, serverProfiles.length - 1);
-      }
-      await saveProfiles();
-      renderProfiles();
-      showToast("已删除服务器配置");
-    });
-  });
 }
 
 async function saveProfiles() {
@@ -219,7 +177,8 @@ function renderExtTags(exts) {
 
 async function loadConfig() {
   const stored = await chrome.storage.local.get("config");
-  currentConfig = { ...DEFAULT_CONFIG, ...(stored.config || {}) };
+  const merged = { ...DEFAULT_CONFIG, ...(stored.config || {}) };
+  currentConfig = JSON.parse(JSON.stringify(merged));
 
   // 从当前活跃 profile 获取 RPC 信息
   const idx = Math.min(currentConfig.activeProfileIndex || 0, (currentConfig.serverProfiles || []).length - 1);
@@ -270,12 +229,17 @@ async function saveConfig() {
   currentConfig.interceptMinSize = minSize || DEFAULT_CONFIG.interceptMinSize;
 
   await chrome.storage.local.set({ config: currentConfig });
+
+  serverProfiles = JSON.parse(JSON.stringify(currentConfig.serverProfiles));
+  activeProfileIndex = currentConfig.activeProfileIndex;
+  renderProfiles();
+
   showToast("✅ 设置已保存");
   testConnection();
 }
 
 async function resetConfig() {
-  currentConfig = { ...DEFAULT_CONFIG };
+  currentConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
   await chrome.storage.local.set({ config: currentConfig });
   await loadConfig();
   await loadProfiles();
@@ -334,7 +298,6 @@ async function setSpeedLimit(bytesPerSec) {
 // ══════════════════════════════════════════
 //  TASKS
 // ══════════════════════════════════════════
-let tasksConnected = false;
 
 async function refreshTasks() {
   const bar = $("#taskStatusBar");
@@ -350,11 +313,9 @@ async function refreshTasks() {
     bar.className = "status-bar err";
     text.textContent = resp.error;
     list.innerHTML = `<div class="empty"><div class="icon">⚠️</div><div class="msg">${esc(resp.error)}</div></div>`;
-    tasksConnected = false;
     return;
   }
 
-  tasksConnected = true;
   const active = resp.active || [];
   const waiting = resp.waiting || [];
   const stopped = resp.stopped || [];
@@ -488,7 +449,7 @@ async function batchSend() {
   resultBox.style.color = "var(--amber)";
   resultBox.textContent = `正在发送 ${urls.length} 个链接…`;
 
-  const resp = await sendMsg({ action: "batchSend", urls });
+  const resp = await sendMsg({ action: "batchSend", urls }, 60000);
 
   if (resp.ok) {
     resultBox.className = "batch-result show ok";
@@ -618,6 +579,38 @@ $("#importFile").addEventListener("change", (e) => {
   e.target.value = "";
 });
 
+// ── 事件委托：服务器配置列表 ──
+$("#profileList").addEventListener("click", async (e) => {
+  const del = e.target.closest("[data-delete]");
+  if (del) {
+    const idx = parseInt(del.dataset.delete);
+    serverProfiles.splice(idx, 1);
+    if (activeProfileIndex >= serverProfiles.length) {
+      activeProfileIndex = Math.max(0, serverProfiles.length - 1);
+    }
+    await saveProfiles();
+    renderProfiles();
+    showToast("已删除服务器配置");
+    return;
+  }
+
+  const card = e.target.closest(".profile-card");
+  if (!card) return;
+  const idx = parseInt(card.dataset.index);
+  if (idx === activeProfileIndex) return;
+
+  const resp = await sendMsg({ action: "switchProfile", index: idx });
+  if (resp.ok) {
+    activeProfileIndex = idx;
+    renderProfiles();
+    loadConfig();
+    testConnection();
+    showToast("✅ 已切换到: " + serverProfiles[idx].name);
+  } else {
+    showToast("❌ 切换失败: " + (resp.error || "未知错误"));
+  }
+});
+
 // 速度限制预设
 $$(".speed-preset").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -632,6 +625,6 @@ window.addEventListener("unload", () => {
 
 // 启动
 loadConfig().then(() => {
-  loadProfiles();
-  testConnection();
+  loadProfiles().catch(() => {});
+  testConnection().catch(() => {});
 });

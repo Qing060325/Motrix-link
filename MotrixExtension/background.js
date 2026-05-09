@@ -11,6 +11,8 @@ const RPC_TIMEOUT_MS = 5000;
 const MAX_RETRIES = 2;
 const TASK_HISTORY_MAX = 50;
 const BADGE_REFRESH_INTERVAL = 5000; // 角标刷新间隔
+const COMPLETION_CHECK_INTERVAL = 10000; // 完成通知检查间隔
+const KEEPALIVE_ALARM = "motrix-keepalive";
 
 // ---------- 工具函数 ----------
 async function getConfig() {
@@ -58,27 +60,6 @@ function sizeInMB(bytes) {
   return bytes / (1024 * 1024);
 }
 
-function formatBytes(bytes) {
-  if (bytes <= 0) return "未知";
-  const units = ["B", "KB", "MB", "GB"];
-  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return (bytes / Math.pow(1024, i)).toFixed(i > 1 ? 1 : 0) + " " + units[i];
-}
-
-function formatSpeed(bytesPerSec) {
-  if (!bytesPerSec || bytesPerSec <= 0) return "—";
-  return formatBytes(bytesPerSec) + "/s";
-}
-
-function escapeHtml(str) {
-  if (!str) return "";
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 // ---------- 任务历史 ----------
 async function addToHistory(entry) {
   const { taskHistory = [] } = await chrome.storage.local.get("taskHistory");
@@ -102,14 +83,14 @@ async function clearHistory() {
 
 // ---------- Motrix RPC 调用（带重试） ----------
 async function rpcCall(method, params = [], rpcConfig) {
-  if (!rpcConfig) rpcConfig = await getActiveRpc();
+  const rpc = rpcConfig || await getActiveRpc();
 
   const payload = {
     jsonrpc: "2.0",
     id: "motrix-ext-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
     method,
-    params: rpcConfig.rpcSecret
-      ? ["token:" + rpcConfig.rpcSecret, ...params]
+    params: rpc.rpcSecret
+      ? ["token:" + rpc.rpcSecret, ...params]
       : params
   };
 
@@ -119,7 +100,7 @@ async function rpcCall(method, params = [], rpcConfig) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), RPC_TIMEOUT_MS);
 
-      const response = await fetch(rpcConfig.rpcUrl, {
+      const response = await fetch(rpc.rpcUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -193,8 +174,39 @@ async function setGlobalSpeedLimit(bytesPerSec, rpcConfig) {
   await rpcCall("aria2.changeGlobalOption", [{ "max-overall-download-limit": limit }], rpcConfig);
 }
 
-// ---------- 角标管理 ----------
+// ---------- 批量发送（带并发控制） ----------
+const BATCH_CONCURRENCY = 5;
+
+async function batchSendUrls(urls, rpcConfig, source) {
+  let success = 0, failed = 0, errors = [];
+
+  for (let i = 0; i < urls.length; i += BATCH_CONCURRENCY) {
+    const batch = urls.slice(i, i + BATCH_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (url) => {
+        try {
+          const taskId = await sendToMotrix(url, rpcConfig);
+          await addToHistory({ url, gid: taskId, status: "sent", source });
+          return { ok: true };
+        } catch (err) {
+          await addToHistory({ url, status: "failed", error: err.message, source });
+          return { ok: false, error: err.message };
+        }
+      })
+    );
+
+    for (const r of results) {
+      if (r.ok) success++;
+      else { failed++; errors.push(r.error); }
+    }
+  }
+
+  return { success, failed, errors };
+}
+
+// ---------- 角标管理 & 完成通知 ----------
 let badgeTimer = null;
+let completionTimer = null;
 
 async function updateBadge() {
   try {
@@ -214,15 +226,21 @@ async function updateBadge() {
 }
 
 function startBadgeTimer() {
-  if (badgeTimer) return;
+  stopBadgeTimer();
   badgeTimer = setInterval(updateBadge, BADGE_REFRESH_INTERVAL);
+  completionTimer = setInterval(checkCompletedTasks, COMPLETION_CHECK_INTERVAL);
   updateBadge();
+  checkCompletedTasks();
 }
 
 function stopBadgeTimer() {
   if (badgeTimer) {
     clearInterval(badgeTimer);
     badgeTimer = null;
+  }
+  if (completionTimer) {
+    clearInterval(completionTimer);
+    completionTimer = null;
   }
   chrome.action.setBadgeText({ text: "" });
 }
@@ -241,8 +259,57 @@ function notify(title, message, isError = false) {
   }
 }
 
+// ---------- 下载完成通知 ----------
+async function checkCompletedTasks() {
+  try {
+    const config = await getConfig();
+    if (!config.downloadCompleteNotify) return;
+
+    const rpcConfig = await getActiveRpc();
+    const stopped = await getStoppedTasks(rpcConfig);
+    if (!stopped || stopped.length === 0) return;
+
+    const { notifiedGids = [] } = await chrome.storage.local.get("notifiedGids");
+    const notifiedSet = new Set(notifiedGids);
+    let updated = false;
+
+    for (const task of stopped) {
+      if (notifiedSet.has(task.gid)) continue;
+      notifiedSet.add(task.gid);
+      notifiedGids.push(task.gid);
+      updated = true;
+
+      let name = "";
+      if (task.files && task.files[0]) {
+        if (task.files[0].path) name = task.files[0].path.split("/").pop();
+        if (!name && task.files[0].uris && task.files[0].uris[0]) {
+          try {
+            name = new URL(task.files[0].uris[0].uri).pathname.split("/").pop() || "";
+          } catch {}
+        }
+      }
+      name = name || "未知文件";
+
+      if (task.status === "complete") {
+        notify("下载完成", name);
+      } else if (task.status === "error") {
+        notify("下载失败", name, true);
+      }
+    }
+
+    if (updated) {
+      if (notifiedGids.length > 100) notifiedGids.splice(0, notifiedGids.length - 100);
+      await chrome.storage.local.set({ notifiedGids });
+    }
+  } catch (e) {
+    console.warn("完成通知检查失败:", e);
+  }
+}
+
 // ---------- 右键菜单 ----------
 chrome.runtime.onInstalled.addListener(() => {
+  chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 1 });
+
   // 单链接下载
   chrome.contextMenus.create({
     id: "download-with-motrix",
@@ -286,20 +353,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       return;
     }
 
-    let success = 0;
-    let failed = 0;
-
-    for (const url of urls) {
-      try {
-        const taskId = await sendToMotrix(url, rpcConfig);
-        await addToHistory({ url, gid: taskId, status: "sent", source: "batch-download" });
-        success++;
-      } catch (err) {
-        await addToHistory({ url, status: "failed", error: err.message, source: "batch-download" });
-        failed++;
-      }
-    }
-
+    const { success, failed } = await batchSendUrls(urls, rpcConfig, "batch-download");
     notify("批量下载完成", `成功 ${success} 个，失败 ${failed} 个`);
     updateBadge();
   }
@@ -337,7 +391,7 @@ chrome.downloads.onCreated.addListener(async (downloadItem) => {
   try {
     const taskId = await sendToMotrix(url, rpcConfig);
     try { await chrome.downloads.cancel(downloadItem.id); } catch (_) {}
-    try { await chrome.downloads.erase(downloadItem.id); } catch (_) {}
+    try { await chrome.downloads.erase({ id: downloadItem.id }); } catch (_) {}
     notify("已拦截并发送到 Motrix", downloadItem.filename || url);
     await addToHistory({
       url,
@@ -373,6 +427,15 @@ chrome.commands.onCommand.addListener(async (command) => {
       "Send to Motrix",
       config.autoIntercept ? "自动拦截已开启" : "自动拦截已关闭"
     );
+  }
+});
+
+// ---------- 保持服务工作线程活跃 ----------
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === KEEPALIVE_ALARM) {
+    updateBadge();
+    checkCompletedTasks();
+    if (!badgeTimer) startBadgeTimer();
   }
 });
 
@@ -441,22 +504,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           break;
         }
         case "batchSend": {
-          // 批量 URL 发送
           const urls = msg.urls || [];
-          let success = 0, failed = 0, errors = [];
-          for (const url of urls) {
-            try {
-              const taskId = await sendToMotrix(url, rpcConfig);
-              await addToHistory({ url, gid: taskId, status: "sent", source: "batch" });
-              success++;
-            } catch (err) {
-              await addToHistory({ url, status: "failed", error: err.message, source: "batch" });
-              failed++;
-              errors.push(err.message);
-            }
-          }
+          const result = await batchSendUrls(urls, rpcConfig, "batch");
           updateBadge();
-          sendResponse({ ok: true, success, failed, errors });
+          sendResponse({ ok: true, ...result });
           break;
         }
         case "setSpeedLimit": {

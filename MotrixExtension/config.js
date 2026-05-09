@@ -30,3 +30,17 @@ const DEFAULT_CONFIG = {
   // v2.0 新增：下载完成通知
   downloadCompleteNotify: true
 };
+
+// ========== 共享工具函数 ==========
+
+function formatBytes(bytes) {
+  if (!bytes || bytes <= 0) return "—";
+  const u = ["B", "KB", "MB", "GB"];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), u.length - 1);
+  return (bytes / Math.pow(1024, i)).toFixed(i > 1 ? 1 : 0) + " " + u[i];
+}
+
+function formatSpeed(bytesPerSec) {
+  if (!bytesPerSec || bytesPerSec <= 0) return "—";
+  return formatBytes(bytesPerSec) + "/s";
+}
